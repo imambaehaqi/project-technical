@@ -1,0 +1,48 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend-app-deployment
+  labels:
+    app: backend-app
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: backend-app
+  template:
+    metadata:
+      labels:
+        app: backend-app
+    spec:
+      containers:
+      - name: backend-app-container
+        # Nama image Docker yang Anda buat di Minikube's Docker daemon
+        image: springboot-backend-image:latest
+        # Penting untuk Minikube dan image lokal!
+        # Always: Selalu mencoba menarik image (akan gagal jika tidak ada di registry, meskipun ada lokal)
+        # IfNotPresent: Tarik jika tidak ada di lokal (default)
+        # Never: Jangan pernah mencoba menarik image, hanya gunakan yang ada di lokal (ini yang kita inginkan untuk image lokal Minikube)
+        imagePullPolicy: Never
+        ports:
+        - containerPort: 8080
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "200m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 8080
+          initialDelaySeconds: 15
+          periodSeconds: 5
+          failureThreshold: 1

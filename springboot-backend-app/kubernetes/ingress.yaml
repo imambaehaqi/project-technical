@@ -1,0 +1,22 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: backend-ingress
+  # Hapus anotasi berikut atau biarkan saja (tidak akan menyebabkan error)
+  # annotations:
+  #   kubernetes.io/ingress.class: nginx
+  nginx.ingress.kubernetes.io/ssl-redirect: "false" # Ini masih bisa tetap sebagai anotasi
+spec:
+  # Tambahkan baris ini sebagai pengganti anotasi ingress.class
+  ingressClassName: nginx # Sesuaikan dengan nama IngressClass di cluster Anda, biasanya 'nginx'
+  rules:
+  - host: api.yourdomain.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: backend-service
+            port:
+              number: 80

@@ -1,0 +1,118 @@
+// Ini adalah deklarasi pipeline Jenkins
+pipeline {
+    // 1. Dimana pipeline akan dijalankan:
+    // 'agent any' berarti Jenkins akan menggunakan mesin manapun yang tersedia sebagai "pekerja".
+    agent any
+
+    // 2. Variabel Lingkungan:
+    // Ini seperti variabel yang bisa digunakan di sepanjang script.
+    environment {
+        // GANTI INI dengan username Docker Hub Anda atau alamat registry lainnya.
+        // Contoh: DOCKER_REGISTRY = 'docker.io/yourdockerusername'
+        DOCKER_REGISTRY = 'your-docker-registry.com'
+
+        // Nama image Docker untuk aplikasi Spring Boot Anda.
+        DOCKER_IMAGE_NAME = 'springboot-backend-app'
+
+        // Tag (versi) image Docker. ${env.BUILD_NUMBER} akan diganti Jenkins dengan nomor build.
+        // Contoh: springboot-backend-app:1, springboot-backend-app:2, dst.
+        DOCKER_IMAGE_TAG = "${env.BUILD_NUMBER}"
+
+        // Namespace Kubernetes. Biasanya 'default' untuk pengujian awal.
+        KUBERNETES_NAMESPACE = 'default'
+
+        // GANTI INI dengan ID kredensial yang Anda buat di Jenkins (STEP 1.2).
+        DOCKER_CREDENTIALS_ID = 'your-docker-registry-credentials-id'
+
+        // Path (lokasi) folder Kubernetes relatif dari root proyek.
+        KUBERNETES_MANIFESTS_DIR = 'kubernetes'
+    }
+
+    // 3. Tahapan (Stages) dalam Pipeline:
+    // Setiap 'stage' adalah sekelompok langkah yang terkait.
+    stages {
+        // Tahap 1: Mengambil kode dari Git
+        stage('Checkout Source Code') {
+            steps {
+                // Perintah Git untuk menarik kode.
+                // GANTI INI dengan URL repositori Git publik Anda (yang berisi Jenkinsfile ini).
+                git branch: 'main', url: 'https://github.com/your-username/your-repo.git'
+            }
+        }
+
+        // Tahap 2: Membangun Aplikasi Spring Boot
+        stage('Build Spring Boot Application') {
+            steps {
+                // Menjalankan perintah Maven di terminal.
+                // 'mvn clean package -DskipTests' akan mengompilasi kode dan membuat JAR.
+                sh 'mvn clean package -DskipTests'
+            }
+        }
+
+        // Tahap 3: Membangun Image Docker
+        stage('Build Docker Image') {
+            steps {
+                script {
+                    // Ini adalah perintah Groovy khusus Jenkins untuk membangun image Docker.
+                    // Image akan diberi nama sesuai DOCKER_REGISTRY, DOCKER_IMAGE_NAME, dan DOCKER_IMAGE_TAG.
+                    // '.' berarti Dockerfile ada di folder saat ini (yaitu 'backend/').
+                    docker.build "${DOCKER_REGISTRY}/${DOCKER_IMAGE_NAME}:${DOCKER_IMAGE_TAG}", '.'
+                }
+            }
+        }
+
+        // Tahap 4: Mendorong Image Docker ke Docker Registry
+        stage('Push Docker Image to Registry') {
+            steps {
+                script {
+                    // Ini adalah perintah Groovy khusus Jenkins untuk otentikasi dan push.
+                    // 'DOCKER_CREDENTIALS_ID' akan digunakan untuk login ke registry.
+                    docker.withRegistry("https://${DOCKER_REGISTRY}", DOCKER_CREDENTIALS_ID) {
+                        docker.image("${DOCKER_REGISTRY}/${DOCKER_IMAGE_NAME}:${DOCKER_IMAGE_TAG}").push()
+                    }
+                }
+            }
+        }
+
+        // Tahap 5: Menerapkan (Deploy) ke Kubernetes
+        stage('Deploy to Kubernetes') {
+            steps {
+                script {
+                    // **PENTING:** Perintah ini MENGUBAH file backend-deployment.yaml SEMENTARA di Jenkins Workspace.
+                    // Ini mengganti nama image di backend-deployment.yaml
+                    // dari 'springboot-backend-image:latest' (untuk lokal Minikube)
+                    // menjadi nama image lengkap dari registry yang baru saja di-push.
+                    sh "sed -i 's|image: springboot-backend-image:latest|image: ${DOCKER_REGISTRY}/${DOCKER_IMAGE_NAME}:${DOCKER_IMAGE_TAG}|g' ${KUBERNETES_MANIFESTS_DIR}/backend-deployment.yaml"
+
+                    // Dan ini mengganti imagePullPolicy
+                    // dari 'Never' (untuk lokal Minikube) menjadi 'Always' (untuk produksi/registry).
+                    sh "sed -i 's|imagePullPolicy: Never|imagePullPolicy: Always|g' ${KUBERNETES_MANIFESTS_DIR}/backend-deployment.yaml"
+
+
+                    // Ini adalah perintah shell untuk menerapkan konfigurasi Kubernetes.
+                    // 'kubectl apply -f' membaca file YAML dan memberi tahu Kubernetes untuk menjalankan/mengupdate resource.
+                    sh "kubectl apply -f ${KUBERNETES_MANIFESTS_DIR}/backend-deployment.yaml --namespace=${KUBERNETES_NAMESPACE}"
+                    sh "kubectl apply -f ${KUBERNETES_MANIFESTS_DIR}/backend-service.yaml --namespace=${KUBERNETES_NAMESPACE}"
+                    sh "kubectl apply -f ${KUBERNETES_MANIFESTS_DIR}/ingress.yaml --namespace=${KUBERNETES_NAMESPACE}"
+                }
+            }
+        }
+    }
+
+    // 4. Tindakan Setelah Selesai (Post-build Actions):
+    post {
+        // Blok 'always' akan selalu dijalankan, terlepas dari apakah pipeline berhasil atau gagal.
+        always {
+            // Membersihkan workspace Jenkins (menghapus semua file yang di-checkout)
+            cleanWs()
+        }
+        // Blok 'success' hanya dijalankan jika semua stage berhasil.
+        success {
+            echo "Pipeline Backend berhasil dieksekusi!"
+        }
+        // Blok 'failure' hanya dijalankan jika ada stage yang gagal.
+        failure {
+            echo "Pipeline Backend gagal!"
+        }
+    }
+}
